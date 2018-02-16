@@ -8,20 +8,27 @@
 		konstanter abstand glieder
 		muster auf gliedern
 		schwanzende sauber abschließen
+		opengl
+		texturen
 
 	todo
 		gegner
 		rand
 		kollision
-		opengl
 		futter
 		unterschiedliche größe
 		zoom
 		wachsen
+		sinusförmig atmen
 
 '/
 
 #Include "windows.bi"
+#Include "fbgfx.bi"
+#Include "gl/gl.bi"
+#Include "gl/glu.bi"
+#Include "gl/glut.bi"
+#Include "string.bi"
 
 
 Const PI = 6.2831853
@@ -37,17 +44,69 @@ Const V1 = 4			' langsame Geschwindigkeit
 Const V2 = 10			' schnelle Geschwindigkeit
 Const NS = 4			' Anzahl Smooth Glieder
 Const NP = 3000		' Anzahl Punkte Schlange
-Const RR = 25			' Radius Glied
+Const RR = 45			' Radius Glied
 Const DG = 0.003		' Drehgeschwindigkeit
-Const GA = 17			' Abstand Glieder
+Const GA = 2*RR/3			' Abstand Glieder
+
+
+Dim Shared As UByte Ptr mtex_body, mtex_head
+
 
 Declare Sub main
 main
 End
 
 
+Sub loadtextures ()
+	Dim As UByte a(54),r,g,b
+	Dim As Integer t
+	Dim As UByte Ptr m
+
+	m = mtex_body
+	Open "body.bmp" For Binary Access Read As #1
+	Get #1,,a(1),54
+	For t = 1 To 64*64
+		Get #1,,b,1
+		Get #1,,g,1
+		Get #1,,r,1
+		*m = r : m += 1
+		*m = g : m += 1
+		*m = b : m += 1
+		If r=255 And g=255 And b=255 Then *m = 0 Else *m = 255
+		m += 1
+	Next
+	Close #1
+
+	m = mtex_head
+	Open "head.bmp" For Binary Access Read As #1
+	Get #1,,a(1),54
+	For t = 1 To 64*64
+		Get #1,,b,1
+		Get #1,,g,1
+		Get #1,,r,1
+		*m = r : m += 1
+		*m = g : m += 1
+		*m = b : m += 1
+		If r=255 And g=255 And b=255 Then *m = 0 Else *m = 255
+		m += 1
+	Next
+	Close #1
+
+End Sub
+
+
+
+
+Sub mytextout (x As Double, y As Double, z As Double, s As String)
+	glRasterPos3d (x, y, z)
+	glListBase (1000)
+	glCallLists (Len(s), GL_UNSIGNED_BYTE, StrPtr(s))
+End Sub
+
+
 Sub main()
-	Dim As Double vx, vy, d, va, wx, wy, wa, a, b, cx(NP), cy(NP), ox, oy, ex, ey
+	Dim As Double vx, vy, d, va, wx, wy, wa, a, b
+	Dim As Double cx(NP), cy(NP), ox, oy, ex, ey, fx, fy
 	Dim As Integer v
 	Dim As Integer mx, my, wheel, button
 	Dim As Integer e, t, n, l
@@ -55,11 +114,60 @@ Sub main()
 	Dim As Single hx(NH), hy(NH)
 	Dim As Double tim
 	Dim As String i
+	Dim As HWND hwnd
+	Dim As HDC hdc
+	Dim As HGLRC hglrc
+	Dim As GLuint texture_body, texture_head
 
 
-	ScreenRes SX,SY,32,2,1
-	ScreenSet 1,0
-	Color RGB(255,255,255),RGB(0,0,0)
+	ScreenRes SX,SY,32,,FB.GFX_FULLSCREEN+FB.GFX_OPENGL  '+FB.GFX_MULTISAMPLE  '+FB.GFX_ALPHA_PRIMITIVES
+
+	ScreenControl (FB.GET_WINDOW_HANDLE, Cast (Integer, hwnd))
+	hdc = GetDC (hwnd)
+	hglrc = wglCreateContext (hdc)
+	wglMakeCurrent (hdc, hglrc)
+	SelectObject (hdc, GetStockObject (SYSTEM_FONT))
+	wglUseFontBitmaps (hdc, 0, 255, 1000)
+
+	' turn vertical sync off (otherwise it is on by default)
+	'Dim SwapInterval As Function (ByVal interval As Integer) As Integer
+	'SwapInterval = ScreenGLProc ("wglSwapIntervalEXT")
+	'SwapInterval (0)
+
+	glViewport (0, 0, SX, SY)
+	glMatrixMode (GL_PROJECTION)
+	glLoadIdentity ()
+	glOrtho (0, SX, 0, SY, -1, 1)
+	glMatrixMode (GL_MODELVIEW)
+	glLoadIdentity ()
+
+	glClearColor (0, 0, 0, 1)		' background color
+	'glEnable (GL_DEPTH_TEST)
+	glEnable (GL_TEXTURE_2D)
+	glEnable (GL_BLEND)
+	glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+	mtex_body = Allocate (64*64*4)
+	mtex_head = Allocate (64*64*4)
+	
+	loadtextures ()
+	
+	glGenTextures (1, @texture_body)
+	glBindTexture (GL_TEXTURE_2D, texture_body)
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP)
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP)
+	glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA, 64, 64, 0, GL_RGBA, GL_UNSIGNED_BYTE, mtex_body)
+
+	glGenTextures (1, @texture_head)
+	glBindTexture (GL_TEXTURE_2D, texture_head)
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP)
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP)
+	glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA, 64, 64, 0, GL_RGBA, GL_UNSIGNED_BYTE, mtex_head)
+	
 
 	For t = 0 To NH
 		Do
@@ -78,8 +186,11 @@ Sub main()
 	Do
 		tim = Timer
 
-		Cls
+		glClear (GL_COLOR_BUFFER_BIT + GL_DEPTH_BUFFER_BIT)
+
 		GetMouse mx, my, wheel, button
+
+		my = SY-1-my
 
 		mx -= SX/2
 		my -= SY/2
@@ -114,11 +225,13 @@ Sub main()
 		wx = Cos(wa)
 		wy = Sin(wa)
 
-
+		glColor4d (1,1,1,1)
+		glBegin (GL_POINTS)
 		For t = 0 To NH										' Hintergrund zeichnen
-			PSet(SX/2-px(0)+hx(t),SY/2-py(0)+hy(t))
+			glVertex2d (SX/2-px(0)+hx(t),SY/2-py(0)+hy(t))
 		Next
-		Circle(SX/2-px(0),SY/2-py(0)),HR
+		glEnd ()
+		'Circle(SX/2-px(0),SY/2-py(0)),HR
 
 
 		e = 0					' Gliedkoos berechnen
@@ -140,21 +253,55 @@ Sub main()
 		cx(e) = px(NP)
 		cy(e) = py(NP)
 
-		For t = e To 0 Step -1				' Glieder zeichnen
-			Circle(SX/2-px(0)+cx(t), SY/2-py(0)+cy(t)),RR,RGB(255,128,0),,,,F
-			Circle(SX/2-px(0)+cx(t), SY/2-py(0)+cy(t)),RR,RGB(255,0,0)
-			If t>0 Then
-				ex = cx(t-1)-cx(t)
-				ey = cy(t-1)-cy(t)
-				d = Sqr(ex^2+ey^2)
-				ex /= d
-				ey /= d
-				Line(SX/2-px(0)+cx(t),SY/2-py(0)+cy(t))-(SX/2-px(0)+cx(t)-ex*RR*0.9,SY/2-py(0)+cy(t)-ey*RR*0.9)
+
+		glEnable (GL_TEXTURE_2D)
+		glEnable (GL_BLEND)
+
+		glBindTexture (GL_TEXTURE_2D, texture_body)
+
+		For t = e To 1 Step -1				' Glieder zeichnen
+			If t=e Then
+				ex = px(NP-1)-px(NP)
+				ey = py(NP-1)-py(NP)
+			Else
+				ex = cx(t)-cx(t+1)
+				ey = cy(t)-cy(t+1)
 			EndIf
+			d = Sqr(ex^2+ey^2)
+			ex /= d
+			ey /= d
+			fx = -ey
+			fy = ex
+			glBegin (GL_QUADS)
+			glTexCoord2d (1,0) : glVertex2d (SX/2-px(0)+cx(t)-RR*ex-RR*fx, SY/2-py(0)+cy(t)-RR*ey-RR*fy)
+			glTexCoord2d (1,1) : glVertex2d (SX/2-px(0)+cx(t)+RR*ex-RR*fx, SY/2-py(0)+cy(t)+RR*ey-RR*fy)
+			glTexCoord2d (0,1) : glVertex2d (SX/2-px(0)+cx(t)+RR*ex+RR*fx, SY/2-py(0)+cy(t)+RR*ey+RR*fy)
+			glTexCoord2d (0,0) : glVertex2d (SX/2-px(0)+cx(t)-RR*ex+RR*fx, SY/2-py(0)+cy(t)-RR*ey+RR*fy)
+			glEnd ()
 		Next
 
-		Line(SX/2,SY/2)-(SX/2+wx*RR,SY/2+wy*RR),RGB(255,255,0)		' Drehwinkel Linien
-		Line(SX/2,SY/2)-(SX/2+vx*RR,SY/2+vy*RR)
+		glBindTexture (GL_TEXTURE_2D, texture_head)
+		
+		ex = vx
+		ey = vy
+		fx = -ey
+		fy = ex
+		
+		glBegin (GL_QUADS)
+		glTexCoord2d (1,0) : glVertex2d (SX/2-px(0)+cx(t)-RR*ex-RR*fx, SY/2-py(0)+cy(t)-RR*ey-RR*fy)
+		glTexCoord2d (1,1) : glVertex2d (SX/2-px(0)+cx(t)+RR*ex-RR*fx, SY/2-py(0)+cy(t)+RR*ey-RR*fy)
+		glTexCoord2d (0,1) : glVertex2d (SX/2-px(0)+cx(t)+RR*ex+RR*fx, SY/2-py(0)+cy(t)+RR*ey+RR*fy)
+		glTexCoord2d (0,0) : glVertex2d (SX/2-px(0)+cx(t)-RR*ex+RR*fx, SY/2-py(0)+cy(t)-RR*ey+RR*fy)
+		glEnd ()
+
+		'Line(SX/2,SY/2)-(SX/2+wx*RR,SY/2+wy*RR),RGB(255,255,0)		' Drehwinkel Linien
+		'Line(SX/2,SY/2)-(SX/2+vx*RR,SY/2+vy*RR)
+
+		'glColor3d (1,1,1)
+		'glBegin (GL_LINES)
+		'glVertex2d (SX/2,SY/2)
+		'glVertex2d (SX/2+vx*RR,SY/2+vy*RR)
+		'glEnd ()
 
 
 		For n = 1 To v
@@ -191,7 +338,10 @@ Sub main()
 		Next
 
 
-		Print Using "###.###";(Timer-tim)*1000
+		glDisable (GL_BLEND)
+		glDisable (GL_TEXTURE_2D)
+
+		mytextout (20,20,0,Format((Timer-tim)*1000,"000.000"))
 
 		If GetAsyncKeyState (VK_Q)<0 Or button=1 Then
 			v += 1
@@ -205,8 +355,7 @@ Sub main()
 		i = InKey
 		If i=Chr(27) Then Exit Do
 
-		ScreenCopy
-		ScreenSync
+		Flip
 	Loop
 
 End Sub
